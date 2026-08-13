@@ -1,0 +1,44 @@
+# Standalone: `docker compose up` locally. Never deployed — fine to publish ports here,
+# this file is not internet-facing.
+services:
+  browser:
+    image: coollabsio/openclaw-browser:0.3.0
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      CHROME_CLI: "--remote-debugging-port=9222"
+    ports:
+      - "3000:3000"   # web desktop UI, for local eyeballing
+      - "9223:9223"   # CDP, for local testing against a locally-run openclaw
+    volumes:
+      - browser-data:/config
+    shm_size: 2g
+    restart: "no"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9223/json/version -o /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  browser-data:

@@ -1,0 +1,67 @@
+# Deployed by Coolify as this repo's docker_compose_location. Shared fleet service — never
+# gets a public domain (docker_compose_domains suppressed, see README). Joins the external
+# `coolify` network so other tenant apps (starting with `openclaw`) can reach it by service
+# name (`browser`) at ws://browser:9223 for CDP.
+services:
+  browser:
+    image: coollabsio/openclaw-browser:0.3.0
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+      # Chrome's own debug port (9222) is bound to 127.0.0.1 inside the container by
+      # design — the image's own nginx (/etc/nginx/cdp-proxy.conf) proxies it onto 9223
+      # bound to 0.0.0.0, which is the port every consumer must use. Confirmed live: see
+      # this plan's "Verified findings" #1.
+      CHROME_CLI: "--remote-debugging-port=9222"
+    volumes:
+      - browser-data:/config
+    networks:
+      - coolify
+    shm_size: 2g
+    restart: unless-stopped
+    # Security hardening (OWASP Docker Security Cheat Sheet). Validated against a real
+    # container, including a real page navigation over CDP, before landing — see this
+    # plan's "Verified findings" #2. Generic "Chrome in Docker" advice says this image
+    # needs cap_add: SYS_ADMIN for Chrome's own sandbox; live-tested false for this image.
+    # What it actually needs is the same capability set already documented for postgresql
+    # in this fleet's CLAUDE.md, for the same reason: an s6-overlay root->PUID/PGID
+    # privilege-drop entrypoint dance that cap_drop: ALL alone breaks
+    # (s6-applyuidgid/nginx chown failures under a bare cap_drop: ALL, confirmed live).
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    security_opt:
+      - no-new-privileges:true
+    # Deliberately no read_only: true — this image manages a full desktop environment
+    # (X server, nginx runtime dirs, browser cache/downloads) with a write surface too
+    # broad to safely enumerate without another crash-loop discovery cycle. Same posture
+    # as n8n/metamcp's own documented exception for the same reason.
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No Docker HEALTHCHECK baked into the image (confirmed via `docker inspect
+    # --format '{{json .Config.Healthcheck}}'` -> null) — this one is ours.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9223/json/version -o /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  browser-data:
+
+networks:
+  coolify:
+    external: true
